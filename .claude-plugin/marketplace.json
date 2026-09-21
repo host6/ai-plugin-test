@@ -1,0 +1,13 @@
+{
+  "name": "untill-dev-plugins-claude",
+  "owner": {
+    "name": "unTill Software Development Group B.V."
+  },
+  "description": "unTill development plugin for AI agents",
+  "plugins": [
+    {
+      "name": "untill-dev",
+      "source": "./untill-dev"
+    }
+  ]
+}

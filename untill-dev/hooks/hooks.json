@@ -1,0 +1,16 @@
+{
+  "description": "Repair headers in new source files after each agent response",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/fix_file_headers.py\" --hook",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

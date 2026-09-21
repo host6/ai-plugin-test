@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 7,
+  "header": {
+    "contentLines": [
+      "Copyright (c) {{currentYear}}-present unTill Software Development Group B.V.",
+      "@author {{gitUserName}}"
+    ],
+    "recognition": {
+      "pattern": "(?im)(?:^|(?<=\\r))[ \\t/*#-]*(?:copyright\\b|@author\\b|(?:author|SPDX-FileCopyrightText)\\s*:)",
+      "commentStyles": {
+        "block": {
+          "start": "/*",
+          "end": "*/"
+        },
+        "slash-line": {
+          "start": "//"
+        },
+        "dash-line": {
+          "start": "--"
+        },
+        "hash-line": {
+          "start": "#"
+        }
+      }
+    },
+    "placements": {
+      "file-start": {},
+      "file-start-or-after-shebang": {
+        "leadingLinePrefix": "#!",
+        "required": false
+      },
+      "after-shebang": {
+        "leadingLinePrefix": "#!",
+        "required": true,
+        "missingMessage": "must already begin with a shebang before its header can be repaired"
+      }
+    },
+    "templates": [
+      {
+        "extensions": [
+          ".c",
+          ".cc",
+          ".cpp",
+          ".cs",
+          ".cxx",
+          ".go",
+          ".h",
+          ".hh",
+          ".hpp",
+          ".hxx",
+          ".java",
+          ".js",
+          ".jsx",
+          ".kt",
+          ".kts",
+          ".m",
+          ".mm",
+          ".rs",
+          ".scala",
+          ".swift",
+          ".ts",
+          ".tsx"
+        ],
+        "commentStyles": [
+          "block",
+          "slash-line"
+        ],
+        "linePrefix": " * ",
+        "openingLines": [
+          "/*"
+        ],
+        "closingLines": [
+          " */"
+        ],
+        "placementOverrides": {
+          ".js": "file-start-or-after-shebang",
+          ".ts": "file-start-or-after-shebang"
+        }
+      },
+      {
+        "extensions": [
+          ".sql",
+          ".vsql"
+        ],
+        "commentStyles": [
+          "block",
+          "dash-line"
+        ],
+        "linePrefix": "-- "
+      },
+      {
+        "extensions": [
+          ".sh"
+        ],
+        "commentStyles": [
+          "block",
+          "hash-line"
+        ],
+        "linePrefix": "# ",
+        "placement": "after-shebang"
+      }
+    ],
+    "placement": "file-start",
+    "encoding": "utf-8"
+  },
+  "variables": {
+    "currentYear": {
+      "source": "system-date",
+      "format": "%Y"
+    },
+    "gitUserName": {
+      "source": "git-config",
+      "key": "user.name",
+      "required": true,
+      "forbiddenPattern": "[\\x00-\\x1f]|/\\*|\\*/"
+    }
+  },
+  "excludedPathGlobs": [
+    "**/.git/**",
+    "**/bin/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/dist/**",
+    "**/gen/**",
+    "**/generated/**",
+    "**/node_modules/**",
+    "**/obj/**",
+    "**/third_party/**",
+    "**/vendor/**",
+    "**/*.gen.*",
+    "**/*.generated.*",
+    "**/*_generated.go",
+    "**/*.mock.go",
+    "**/*.pb.cc",
+    "**/*.pb.go",
+    "**/*.pb.h"
+  ]
+}
