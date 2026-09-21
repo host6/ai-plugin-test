@@ -1,6 +1,7 @@
 {
   "schemaVersion": 7,
   "header": {
+    "blankLinesAfter": 1,
     "contentLines": [
       "Copyright (c) {{currentYear}}-present unTill Software Development Group B.V.",
       "@author {{gitUserName}}"

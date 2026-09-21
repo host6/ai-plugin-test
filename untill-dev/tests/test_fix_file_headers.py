@@ -101,7 +101,7 @@ class HeaderTests(unittest.TestCase):
             *template.get("openingLines", []),
             *(template["linePrefix"] + line for line in self.content_lines(author)),
             *template.get("closingLines", []),
-            "",
+            *([""] * (self.policy["header"].get("blankLinesAfter", 0) + 1)),
         ])
 
     def preamble(self, dialect, newline="\n"):
@@ -127,6 +127,14 @@ class HeaderTests(unittest.TestCase):
 
     def test_wrong_and_duplicate_headers_are_replaced(self):
         path = self.source(content=self.header(author="Old Author") + self.header() + "body\n")
+        self.run_script(path)
+        self.assertEqual(path.read_bytes(), (self.header() + "body\n").encode())
+
+    def test_wrong_fixed_header_text_is_replaced(self):
+        wrong = self.header().replace(
+            "unTill Software Development Group B.V.", "Wrong Company"
+        )
+        path = self.source(content=wrong + "body\n")
         self.run_script(path)
         self.assertEqual(path.read_bytes(), (self.header() + "body\n").encode())
 
@@ -218,12 +226,45 @@ class HeaderTests(unittest.TestCase):
                     self.assertEqual(path.stat().st_mtime_ns, before.st_mtime_ns)
                     self.assertEqual(path.stat().st_ino, before.st_ino)
 
+    def test_existing_header_keeps_original_variable_values(self):
+        dialect = next(dialect for dialect in self.dialects if dialect[0] == ".go")
+        current_year = str(date.today().year)
+        old_year = str(date.today().year - 1)
+        header = self.header(dialect, author="Original Author").replace(
+            f"Copyright (c) {current_year}-present",
+            f"Copyright (c) {old_year}-present",
+        )
+        content = header + "package voedger\n"
+        path = self.source("existing", content, dialect)
+        self.git("config", "--unset", self.author_key)
+        os.utime(path, ns=(1_600_000_000_000_000_000, 1_600_000_000_000_000_000))
+        before = path.stat()
+        self.run_script(path)
+        self.assertEqual(path.read_bytes(), content.encode())
+        self.assertEqual(path.stat().st_mtime_ns, before.st_mtime_ns)
+        self.assertEqual(path.stat().st_ino, before.st_ino)
+
     def test_repair_is_idempotent(self):
         path = self.source(content="\n" + self.header(author="Old") + "\nbody\n")
         self.run_script(path)
         original = path.read_bytes()
         self.run_script(path)
         self.assertEqual(path.read_bytes(), original)
+
+    def test_go_header_has_exactly_one_blank_line_before_package(self):
+        dialect = next(dialect for dialect in self.dialects if dialect[0] == ".go")
+        expected = self.header(dialect) + "package voedger\n"
+        for name, content in (
+            ("fresh", "package voedger\n"),
+            ("legacy", self.header(dialect)[:-1] + "package voedger\n"),
+            ("extra", self.header(dialect) + "\n\npackage voedger\n"),
+        ):
+            with self.subTest(content=name):
+                path = self.source(name, content, dialect)
+                self.run_script(path)
+                self.assertEqual(path.read_bytes(), expected.encode())
+                self.run_script(path)
+                self.assertEqual(path.read_bytes(), expected.encode())
 
     def test_literal_unicode_git_value(self):
         author = "Denis Ж $& $$ $" + chr(96) + " $' {{literal}}"
@@ -289,10 +330,11 @@ class HeaderTests(unittest.TestCase):
         tracked.write_bytes(b"edited\n")
         self.git("add", tracked.name)
         untracked = self.source("untracked")
-        new = self.source(content=self.header(author="Wrong") + "body\n")
+        existing_header = self.header(author="Original Author") + "body\n"
+        new = self.source(content=existing_header)
         self.stop()
-        for path in (untracked, new):
-            self.assertEqual(path.read_bytes(), (self.header() + "body\n").encode())
+        self.assertEqual(untracked.read_bytes(), (self.header() + "body\n").encode())
+        self.assertEqual(new.read_bytes(), existing_header.encode())
         self.assertEqual(tracked.read_bytes(), b"edited\n")
 
     def test_stop_repairs_multiple_new_files_in_one_batch(self):
@@ -462,7 +504,7 @@ class HeaderTests(unittest.TestCase):
                 self.run_script(unsupported, script=script)
                 self.assertEqual(unsupported.read_bytes(), b"body\n")
                 self.git("config", "header-test.owner", end)
-                self.run_script(path, script=script, expected=1)
+                self.run_script(path, script=script)
                 self.assertEqual(path.read_bytes(), expected)
 
     def test_registered_command_works_from_installed_path_with_spaces(self):

@@ -13,9 +13,12 @@ from typing import Any, Dict, List, Set
 
 from build_header_from_policy import (
     HeaderPolicyError,
+    blank_lines_after,
+    detect_newline,
     find_git_root,
     is_excluded,
     load_policy,
+    match_existing_header,
     render_required_prefix,
     run_git,
     split_preamble,
@@ -23,6 +26,7 @@ from build_header_from_policy import (
 
 
 NEWLINE = re.compile(r"\r\n|\n|\r")
+LEADING_BLANK_LINES = re.compile(r"^(?:[ \t]*(?:\r\n|\n|\r))+")
 
 
 def new_files(repo_root: Path) -> Set[str]:
@@ -105,13 +109,29 @@ def repair_file(path: Path, repo_root: Path, policy: Dict[str, Any]) -> bool:
     original = path.read_bytes()
     encoding = policy["header"]["encoding"]
     content = original.decode(encoding)
-    prefix = render_required_prefix(path, policy, content)
-    if prefix is None:
-        return False
-
     bom = "\ufeff" if content.startswith("\ufeff") else ""
-    _, body = split_preamble(content[len(bom):], template)
-    body = strip_old_headers(body, template, policy)
+    content_without_bom = content[len(bom):]
+    existing = match_existing_header(content_without_bom, template, policy)
+    if existing is not None:
+        existing_header, body = existing
+        body = LEADING_BLANK_LINES.sub("", body)
+        # A second leading header makes the prefix invalid rather than exempting
+        # the file from duplicate cleanup.
+        if strip_old_headers(body, template, policy) == body:
+            newline = detect_newline(content)
+            prefix = existing_header + newline * (blank_lines_after(policy) + 1)
+        else:
+            existing = None
+    if existing is None:
+        prefix = render_required_prefix(path, policy, content)
+        if prefix is None:
+            return False
+        _, body = split_preamble(content_without_bom, template)
+        body = strip_old_headers(body, template, policy)
+        if blank_lines_after(policy):
+            # The rendered prefix owns this boundary. Remove separators left by an
+            # old header (or present in a new file) before adding the configured one.
+            body = LEADING_BLANK_LINES.sub("", body)
     updated = (bom + prefix + body).encode(encoding)
     if updated == original:
         return False

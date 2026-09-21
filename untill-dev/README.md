@@ -13,6 +13,7 @@ A `Stop` hook runs `scripts/fix_file_headers.py` after each agent response to in
 - A trusted plugin hook and one active agent session per codebase.
 
 No third-party Python packages are required.
+
 - No other process modifies files during the `Stop` phase.
 
 ### Operation
@@ -34,7 +35,7 @@ The bundled policy supports:
 - `#` after the required shebang in `.sh` files.
 - Optional leading shebangs in JavaScript and TypeScript.
 
-The script replaces recognizable leading copyright or author comments, including duplicates and incorrect styles, while retaining other comments and file content. It preserves UTF-8 BOMs, line endings, shebangs, and permissions. Unsupported and excluded files are skipped.
+The script leaves an existing canonical header untouched when only rendered policy variables differ, so an older copyright year or original author is preserved. It replaces partial headers, duplicate headers, incorrect fixed text, and incorrect comment styles while retaining other comments and file content. It keeps exactly one blank line between the header and the body, and preserves UTF-8 BOMs, line endings, shebangs, and permissions. Unsupported and excluded files are skipped.
 
 A missing Git identity, missing required shell shebang, or unterminated header reports an error without rewriting that file. Other files still run; errors go to stderr and produce exit code 1.
 

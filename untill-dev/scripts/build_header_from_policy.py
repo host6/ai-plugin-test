@@ -138,6 +138,13 @@ def first_line(content: str) -> str:
     return re.split(r"\r\n|\n|\r", content, maxsplit=1)[0]
 
 
+def blank_lines_after(policy: Dict[str, Any]) -> int:
+    value = policy["header"].get("blankLinesAfter", 0)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise HeaderPolicyError("header.blankLinesAfter must be a non-negative integer")
+    return value
+
+
 def split_preamble(content: str, template: Dict[str, Any]) -> Tuple[str, str]:
     """Preserve a leading line according to the selected placement rule."""
     placement = template["placementRule"]
@@ -152,6 +159,51 @@ def split_preamble(content: str, template: Dict[str, Any]) -> Tuple[str, str]:
     newline = re.search(r"\r\n|\n|\r", content)
     body = content[newline.end():] if newline else ""
     return leading_line + detect_newline(content), body
+
+
+def match_existing_header(
+    content: str, template: Dict[str, Any], policy: Dict[str, Any]
+) -> Optional[Tuple[str, str]]:
+    """Split off a canonical header while treating variable values as opaque."""
+    preamble, body = split_preamble(content, template)
+    header_lines = [
+        *template.get("openingLines", []),
+        *(f"{template['linePrefix']}{line}" for line in policy["header"]["contentLines"]),
+        *template.get("closingLines", []),
+    ]
+    captures: List[Tuple[str, str]] = []
+    line_patterns = []
+    for line in header_lines:
+        pieces = []
+        position = 0
+        for match in VARIABLE_TOKEN.finditer(line):
+            pieces.append(re.escape(line[position:match.start()]))
+            group = f"header_variable_{len(captures)}"
+            pieces.append(f"(?P<{group}>[^\\r\\n]+?)")
+            captures.append((group, match.group(1)))
+            position = match.end()
+        pieces.append(re.escape(line[position:]))
+        line_patterns.append("".join(pieces))
+
+    if len(line_patterns) > 1:
+        expression = (
+            line_patterns[0]
+            + r"(?P<header_newline>\r\n|\n|\r)"
+            + r"(?P=header_newline)".join(line_patterns[1:])
+            + r"(?=$|(?P=header_newline))"
+        )
+    else:
+        expression = line_patterns[0] + r"(?=$|\r\n|\n|\r)"
+    match = re.match(expression, body)
+    if match is None:
+        return None
+
+    for group, name in captures:
+        variable = policy["variables"][name]
+        forbidden = variable.get("forbiddenValue")
+        if forbidden is not None and forbidden.search(match.group(group)):
+            return None
+    return preamble + match.group(0), body[match.end():]
 
 
 def render_required_prefix(
@@ -185,4 +237,4 @@ def render_required_prefix(
 
     content_without_bom = content[1:] if content.startswith("\ufeff") else content
     preamble, _ = split_preamble(content_without_bom, template)
-    return f"{preamble}{header}{newline}"
+    return f"{preamble}{header}{newline * (blank_lines_after(policy) + 1)}"

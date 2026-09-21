@@ -10,7 +10,40 @@ It requires Git, Python 3.8+, and a configured Git `user.name`.
 
 See the [full documentation](untill-dev/README.md#header-comment-corrector) for supported formats, exclusions, and manual repair. Run its tests with `python -m unittest discover -s untill-dev/tests -v`.
 
-## Codex setup (recommended)
+## Installation
+
+Failed to implement per-repo installation (`failed to load plugin: plugin is not installed` error reported)
+
+1. Install the plugin globally:
+
+```shell
+codex plugin marketplace add https://github.com/untillpro/ai-plugins.git
+codex plugin add untill-dev@untill-ai-plugins
+```
+
+2. Disable the plugin globally:
+
+`~/.codex/config.toml`:
+
+```toml
+[plugins."untill-dev@untill-ai-plugins"]
+enabled = false
+```
+
+3. Trust the plugin hook:
+
+codex settings -> Hooks -> From Plugins -> untill-dev -> enable Stop hook
+
+![alt text](image.png)
+
+4. Enable the plugin in each repo where it is needed:
+
+`<repoRoot>/.codex/config.toml`:
+
+```toml
+[plugins."untill-dev@untill-ai-plugins"]
+enabled = true
+```
 
 Enable the plugin only where needed by creating `.codex/agents/untill-dev.toml` in each repository:
 
@@ -30,13 +63,9 @@ For every implementation task that may create source files, delegate the file ch
 
 Start a new session, use the agent, and approve the hook when prompted. See the Codex docs for [custom agents](https://learn.chatgpt.com/docs/agent-configuration/subagents), [plugin configuration](https://learn.chatgpt.com/docs/config-file/config-reference), and [hook trust](https://learn.chatgpt.com/docs/hooks).
 
-## Global installation (optional)
-
-For Codex CLI:
+## Deinstallation
 
 ```shell
-codex plugin marketplace add untillpro/ai-plugins
-codex plugin add untill-dev@untill-dev-plugins-claude
+codex plugin remove untill-dev@untill-ai-plugins
+codex plugin marketplace remove untill-ai-plugins
 ```
-
-In Claude Code, enable marketplace auto-updates under `/plugin` and run `/reload-plugins` after an update.
