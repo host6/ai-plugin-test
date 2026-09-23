@@ -52,6 +52,7 @@ class HeaderTests(unittest.TestCase):
         self.git("init", "--quiet")
         self.git("config", self.author_key, "Header Test Author")
         self.git("config", "user.email", "headers@example.test")
+        self.git("remote", "add", "origin", "https://github.com/untillpro/header-tests.git")
 
     def git(self, *arguments):
         return subprocess.run(
@@ -130,21 +131,45 @@ class HeaderTests(unittest.TestCase):
         self.run_script(path)
         self.assertEqual(path.read_bytes(), (self.header() + "body\n").encode())
 
-    def test_wrong_fixed_header_text_is_replaced(self):
+    def test_header_without_ownership_marker_is_preserved(self):
         wrong = self.header().replace(
             "unTill Software Development Group B.V.", "Wrong Company"
         )
         path = self.source(content=wrong + "body\n")
         self.run_script(path)
-        self.assertEqual(path.read_bytes(), (self.header() + "body\n").encode())
+        self.assertEqual(path.read_bytes(), (self.header() + wrong + "body\n").encode())
 
-    def test_partial_headers_and_all_configured_comment_styles_are_recognized(self):
+    def test_owned_partial_headers_and_all_configured_comment_styles_are_recognized(self):
         for style in self.policy["header"]["recognition"]["commentStyles"].values():
-            for line in self.content_lines("Old Author"):
-                with self.subTest(style=style, line=line):
-                    path = self.source(content=self.comment(style, [line]) + "body\n")
-                    self.run_script(path)
-                    self.assertEqual(path.read_bytes(), (self.header() + "body\n").encode())
+            line = self.content_lines("Old Author")[0]
+            with self.subTest(style=style):
+                path = self.source(content=self.comment(style, [line]) + "body\n")
+                self.run_script(path)
+                self.assertEqual(path.read_bytes(), (self.header() + "body\n").encode())
+
+    def test_third_party_legal_headers_are_preserved(self):
+        lines = [
+            "Copyright (c) 2024 Third Party LLC",
+            "Author: Third Party Maintainer",
+            "@author Upstream Maintainer",
+            "SPDX-FileCopyrightText: 2024 Third Party LLC",
+            "SPDX-License-Identifier: Apache-2.0",
+        ]
+        for name in self.default[1]["commentStyles"]:
+            style = self.policy["header"]["recognition"]["commentStyles"][name]
+            with self.subTest(style=name):
+                body = self.comment(style, lines) + "body\n"
+                path = self.source(content=body)
+                self.run_script(path)
+                self.assertEqual(path.read_bytes(), (self.header() + body).encode())
+
+    def test_author_comment_after_owned_header_separator_is_preserved(self):
+        style = self.policy["header"]["recognition"]["commentStyles"]["slash-line"]
+        owned = self.comment(style, [self.content_lines()[0]])
+        author = self.comment(style, ["@author Independent Maintainer"])
+        path = self.source(content=owned + "\n" + author + "body\n")
+        self.run_script(path)
+        self.assertEqual(path.read_bytes(), (self.header() + author + "body\n").encode())
 
     def test_line_metadata_is_removed_without_losing_adjacent_directives(self):
         for dialect in self.dialects:
@@ -226,23 +251,25 @@ class HeaderTests(unittest.TestCase):
                     self.assertEqual(path.stat().st_mtime_ns, before.st_mtime_ns)
                     self.assertEqual(path.stat().st_ino, before.st_ino)
 
-    def test_existing_header_keeps_original_variable_values(self):
+    def test_existing_header_repairs_stale_variable_values(self):
         dialect = next(dialect for dialect in self.dialects if dialect[0] == ".go")
         current_year = str(date.today().year)
         old_year = str(date.today().year - 1)
-        header = self.header(dialect, author="Original Author").replace(
-            f"Copyright (c) {current_year}-present",
-            f"Copyright (c) {old_year}-present",
-        )
-        content = header + "package voedger\n"
-        path = self.source("existing", content, dialect)
-        self.git("config", "--unset", self.author_key)
-        os.utime(path, ns=(1_600_000_000_000_000_000, 1_600_000_000_000_000_000))
-        before = path.stat()
-        self.run_script(path)
-        self.assertEqual(path.read_bytes(), content.encode())
-        self.assertEqual(path.stat().st_mtime_ns, before.st_mtime_ns)
-        self.assertEqual(path.stat().st_ino, before.st_ino)
+        headers = {
+            "old-year": self.header(dialect).replace(
+                f"Copyright (c) {current_year}-present",
+                f"Copyright (c) {old_year}-present",
+            ),
+            "other-author": self.header(dialect, author="Original Author"),
+        }
+        for name, header in headers.items():
+            with self.subTest(value=name):
+                path = self.source(name, header + "package voedger\n", dialect)
+                self.run_script(path)
+                self.assertEqual(
+                    path.read_bytes(),
+                    (self.header(dialect) + "package voedger\n").encode(),
+                )
 
     def test_repair_is_idempotent(self):
         path = self.source(content="\n" + self.header(author="Old") + "\nbody\n")
@@ -301,6 +328,14 @@ class HeaderTests(unittest.TestCase):
         self.assertIn(f"Git {self.author_key} is not configured".encode(), result.stderr)
         self.assertEqual(path.read_bytes(), b"body\n")
 
+    def test_existing_header_cannot_bypass_missing_git_value(self):
+        content = self.header(author="Unverified Author") + "body\n"
+        path = self.source(content=content)
+        self.git("config", "--unset", self.author_key)
+        result = self.run_script(path, expected=1)
+        self.assertIn(f"Git {self.author_key} is not configured".encode(), result.stderr)
+        self.assertEqual(path.read_bytes(), content.encode())
+
     def test_forbidden_git_value_is_rejected(self):
         delimiter = next(style["end"] for _, style in self.policy["commentStyles"] if "end" in style)
         for value in ("Bad " + delimiter, "Bad\nValue", "Bad\tValue"):
@@ -334,7 +369,7 @@ class HeaderTests(unittest.TestCase):
         new = self.source(content=existing_header)
         self.stop()
         self.assertEqual(untracked.read_bytes(), (self.header() + "body\n").encode())
-        self.assertEqual(new.read_bytes(), existing_header.encode())
+        self.assertEqual(new.read_bytes(), (self.header() + "body\n").encode())
         self.assertEqual(tracked.read_bytes(), b"edited\n")
 
     def test_stop_repairs_multiple_new_files_in_one_batch(self):
@@ -342,6 +377,34 @@ class HeaderTests(unittest.TestCase):
         self.stop()
         for path in paths:
             self.assertEqual(path.read_bytes(), (self.header() + "body\n").encode())
+
+    def test_only_allowed_github_organizations_are_processed(self):
+        remote_urls = {
+            "https://github.com/untillpro/repository.git": True,
+            "git@github.com:voedger/repository.git": True,
+            "ssh://git@github.com/VOEDGER/repository.git": True,
+            "https://github.com/other/repository.git": False,
+            "https://example.com/untillpro/repository.git": False,
+        }
+        for index, (remote_url, allowed) in enumerate(remote_urls.items()):
+            with self.subTest(remote_url=remote_url):
+                self.git("remote", "set-url", "origin", remote_url)
+                path = self.source(f"organization-{index}")
+                self.stop()
+                expected = self.header() + "body\n" if allowed else "body\n"
+                self.assertEqual(path.read_bytes(), expected.encode())
+
+    def test_repository_without_origin_is_not_processed(self):
+        self.git("remote", "remove", "origin")
+        path = self.source()
+        self.stop()
+        self.assertEqual(path.read_bytes(), b"body\n")
+
+    def test_manual_repair_is_limited_to_allowed_organizations(self):
+        self.git("remote", "set-url", "origin", "https://github.com/other/repository.git")
+        path = self.source()
+        self.run_script(path)
+        self.assertEqual(path.read_bytes(), b"body\n")
 
     def test_staged_creations_are_detected_without_updating_index(self):
         path = self.source()
@@ -504,7 +567,7 @@ class HeaderTests(unittest.TestCase):
                 self.run_script(unsupported, script=script)
                 self.assertEqual(unsupported.read_bytes(), b"body\n")
                 self.git("config", "header-test.owner", end)
-                self.run_script(path, script=script)
+                self.run_script(path, script=script, expected=1)
                 self.assertEqual(path.read_bytes(), expected)
 
     def test_registered_command_works_from_installed_path_with_spaces(self):

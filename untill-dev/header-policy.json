@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 7,
+  "schemaVersion": 8,
   "header": {
     "blankLinesAfter": 1,
     "contentLines": [
@@ -7,7 +7,8 @@
       "@author {{gitUserName}}"
     ],
     "recognition": {
-      "pattern": "(?im)(?:^|(?<=\\r))[ \\t/*#-]*(?:copyright\\b|@author\\b|(?:author|SPDX-FileCopyrightText)\\s*:)",
+      "pattern": "(?im)(?:^|(?<=\\r))[ \\t/*#-]*copyright[ \\t]+\\(c\\)[ \\t]+\\d{4}-present[ \\t]+unTill Software Development Group B\\.V\\.",
+      "continuationPattern": "(?im)(?:^|(?<=\\r))[ \\t/*#-]*@author\\b",
       "commentStyles": {
         "block": {
           "start": "/*",

@@ -9,7 +9,8 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
+from urllib.parse import urlsplit
 
 from build_header_from_policy import (
     HeaderPolicyError,
@@ -20,6 +21,7 @@ from build_header_from_policy import (
     load_policy,
     match_existing_header,
     render_required_prefix,
+    resolve_variables,
     run_git,
     split_preamble,
 )
@@ -27,6 +29,33 @@ from build_header_from_policy import (
 
 NEWLINE = re.compile(r"\r\n|\n|\r")
 LEADING_BLANK_LINES = re.compile(r"^(?:[ \t]*(?:\r\n|\n|\r))+")
+ALLOWED_GITHUB_ORGANIZATIONS = frozenset({"untillpro", "voedger"})
+
+
+def github_organization(remote_url: str) -> Optional[str]:
+    """Return the organization from a GitHub HTTPS/SSH remote URL."""
+    remote_url = remote_url.strip()
+    if "://" in remote_url:
+        parsed = urlsplit(remote_url)
+        host = parsed.hostname
+        path = parsed.path
+    else:
+        match = re.fullmatch(r"(?:[^/@]+@)?([^/:]+):(.+)", remote_url)
+        if match is None:
+            return None
+        host, path = match.groups()
+    if host is None or host.lower() != "github.com":
+        return None
+    parts = [part for part in path.split("/") if part]
+    return parts[0].lower() if len(parts) >= 2 else None
+
+
+def repository_is_allowed(repo_root: Path) -> bool:
+    """Whether the repository's origin belongs to an allowed GitHub organization."""
+    result = run_git(["remote", "get-url", "origin"], repo_root)
+    if result.returncode:
+        return False
+    return github_organization(result.stdout) in ALLOWED_GITHUB_ORGANIZATIONS
 
 
 def new_files(repo_root: Path) -> Set[str]:
@@ -47,13 +76,17 @@ def new_files(repo_root: Path) -> Set[str]:
 def strip_old_headers(content: str, template: Dict[str, Any], policy: Dict[str, Any]) -> str:
     """Remove header comments in the leading comment region; retain other text.
 
-    Only metadata lines are removed from comments without an ending delimiter,
-    so adjacent directives and descriptive comments survive.
+    Delimited comments are owned only when they contain the configured header
+    marker. For line comments, the one configured continuation line is removed
+    with that marker, so adjacent directives and third-party metadata survive.
     """
     kept: List[str] = []
     position = 0
+    continuation_style = None
     while position < len(content):
         whitespace = re.match(r"\s*", content[position:]).group(0)
+        if continuation_style is not None and NEWLINE.search(whitespace):
+            continuation_style = None
         kept.append(whitespace)
         position += len(whitespace)
         if position == len(content):
@@ -83,15 +116,24 @@ def strip_old_headers(content: str, template: Dict[str, Any], policy: Dict[str, 
             end = newline.start() if newline else len(content)
             comment = content[position:end]
         is_header = policy["headerPattern"].search(comment) is not None
-        if name not in template["commentStyles"] and not is_header:
+        continuation_pattern = policy["headerContinuationPattern"]
+        is_continuation = (
+            continuation_style == name
+            and "end" not in style
+            and continuation_pattern is not None
+            and continuation_pattern.search(comment) is not None
+        )
+        if name not in template["commentStyles"] and not is_header and not is_continuation:
             break
-        if is_header:
+        if is_header or is_continuation:
             # Consume the comment's newline, but preserve blank lines and body.
             trailing_newline = NEWLINE.match(content, end)
             position = trailing_newline.end() if trailing_newline else end
+            continuation_style = name if is_header and "end" not in style else None
         else:
             kept.append(content[position:end])
             position = end
+            continuation_style = None
     kept.append(content[position:])
     return "".join(kept)
 
@@ -111,7 +153,8 @@ def repair_file(path: Path, repo_root: Path, policy: Dict[str, Any]) -> bool:
     content = original.decode(encoding)
     bom = "\ufeff" if content.startswith("\ufeff") else ""
     content_without_bom = content[len(bom):]
-    existing = match_existing_header(content_without_bom, template, policy)
+    variables = resolve_variables(repo_root, policy)
+    existing = match_existing_header(content_without_bom, template, policy, variables)
     if existing is not None:
         existing_header, body = existing
         body = LEADING_BLANK_LINES.sub("", body)
@@ -123,7 +166,7 @@ def repair_file(path: Path, repo_root: Path, policy: Dict[str, Any]) -> bool:
         else:
             existing = None
     if existing is None:
-        prefix = render_required_prefix(path, policy, content)
+        prefix = render_required_prefix(path, policy, content, variables)
         if prefix is None:
             return False
         _, body = split_preamble(content_without_bom, template)
@@ -169,6 +212,8 @@ def hook(payload: Dict[str, Any]) -> None:
             raise HeaderPolicyError(result.stderr.strip() or "cannot locate Git working tree")
         return
     repo_root = Path(result.stdout.rstrip("\r\n")).resolve()
+    if not repository_is_allowed(repo_root):
+        return
     policy = load_policy()
     errors = []
     for relative in sorted(new_files(repo_root)):
@@ -203,6 +248,8 @@ def main(arguments: List[str]) -> int:
                 if any(part.lower() == ".git" for part in path.parts):
                     continue
                 repo_root = find_git_root(path)
+                if not repository_is_allowed(repo_root):
+                    continue
                 repair_file(path, repo_root, policy)
     except (HeaderPolicyError, OSError, ValueError, KeyError, TypeError) as error:
         print(f"source-file-headers: {error}", file=sys.stderr)

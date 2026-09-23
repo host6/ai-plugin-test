@@ -27,6 +27,10 @@ def load_policy() -> Dict[str, Any]:
     recognition = header["recognition"]
 
     policy["headerPattern"] = re.compile(recognition["pattern"])
+    continuation_pattern = recognition.get("continuationPattern")
+    policy["headerContinuationPattern"] = (
+        re.compile(continuation_pattern) if continuation_pattern is not None else None
+    )
     # Prefer a longer delimiter if configured starts overlap.
     policy["commentStyles"] = sorted(
         recognition["commentStyles"].items(),
@@ -162,9 +166,12 @@ def split_preamble(content: str, template: Dict[str, Any]) -> Tuple[str, str]:
 
 
 def match_existing_header(
-    content: str, template: Dict[str, Any], policy: Dict[str, Any]
+    content: str,
+    template: Dict[str, Any],
+    policy: Dict[str, Any],
+    variables: Dict[str, str],
 ) -> Optional[Tuple[str, str]]:
-    """Split off a canonical header while treating variable values as opaque."""
+    """Split off a canonical header whose values match the resolved policy."""
     preamble, body = split_preamble(content, template)
     header_lines = [
         *template.get("openingLines", []),
@@ -199,15 +206,16 @@ def match_existing_header(
         return None
 
     for group, name in captures:
-        variable = policy["variables"][name]
-        forbidden = variable.get("forbiddenValue")
-        if forbidden is not None and forbidden.search(match.group(group)):
+        if match.group(group) != variables[name]:
             return None
     return preamble + match.group(0), body[match.end():]
 
 
 def render_required_prefix(
-    file_path: Path, policy: Dict[str, Any], content: str
+    file_path: Path,
+    policy: Dict[str, Any],
+    content: str,
+    variables: Optional[Dict[str, str]] = None,
 ) -> Optional[str]:
     template = policy["templatesByExtension"].get(file_path.suffix.lower())
     if template is None:
@@ -224,7 +232,8 @@ def render_required_prefix(
     newline = detect_newline(content)
     opening_lines = template.get("openingLines", [])
     closing_lines = template.get("closingLines", [])
-    variables = resolve_variables(repo_root, policy)
+    if variables is None:
+        variables = resolve_variables(repo_root, policy)
     header_lines = [
         *opening_lines,
         *(f"{template['linePrefix']}{line}" for line in policy["header"]["contentLines"]),

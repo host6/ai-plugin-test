@@ -1,20 +1,21 @@
 # untill-dev
 
-`untill-dev` automates unTill development workflows in Codex, with Claude Code compatibility.
+`untill-dev` automates unTill development workflows in Claude Code.
 
 ## Header comment corrector
 
 A `Stop` hook runs `scripts/fix_file_headers.py` after each agent response to insert or repair headers in new source files.
+It operates only when the repository's GitHub `origin` belongs to the `untillpro` or `voedger`
+organization; repositories without such an origin are left unchanged.
 
 ### Requirements
 
-- Git and Python 3.8+ on `PATH` (`python` must select Python 3).
-- A Git working tree with `user.name` configured.
-- A trusted plugin hook and one active agent session per codebase.
+- Git and Python 3.8+ on `PATH` (`python` must select Python 3)
+- A Git working tree with `user.name` configured
+- A trusted plugin hook and one active agent session per codebase
+- No other process modifies files during the `Stop` phase
 
 No third-party Python packages are required.
-
-- No other process modifies files during the `Stop` phase.
 
 ### Operation
 
@@ -35,7 +36,7 @@ The bundled policy supports:
 - `#` after the required shebang in `.sh` files.
 - Optional leading shebangs in JavaScript and TypeScript.
 
-The script leaves an existing canonical header untouched when only rendered policy variables differ, so an older copyright year or original author is preserved. It replaces partial headers, duplicate headers, incorrect fixed text, and incorrect comment styles while retaining other comments and file content. It keeps exactly one blank line between the header and the body, and preserves UTF-8 BOMs, line endings, shebangs, and permissions. Unsupported and excluded files are skipped.
+The script leaves an existing canonical header untouched only when its rendered values match the current policy. Older copyright years and authors that differ from Git's effective `user.name` are repaired. It also replaces duplicate headers and partial or malformed headers carrying the unTill copyright marker. Standalone copyright, author, and SPDX comments are not treated as replaceable headers, so third-party legal attribution is retained. Other comments and file content remain intact, with exactly one blank line between the generated header and the body; UTF-8 BOMs, line endings, shebangs, and permissions are preserved. Unsupported and excluded files are skipped.
 
 A missing Git identity, missing required shell shebang, or unterminated header reports an error without rewriting that file. Other files still run; errors go to stderr and produce exit code 1.
 
@@ -47,7 +48,8 @@ From the plugin directory:
 python scripts/fix_file_headers.py path/to/file.go path/to/script.sh
 ```
 
-Named files are repaired even if already committed. Success is silent; unsupported or excluded files remain unchanged.
+Named files in an allowed repository are repaired even if already committed. Success is silent;
+unsupported or excluded files and repositories outside the allowed organizations remain unchanged.
 
 ## Development
 
