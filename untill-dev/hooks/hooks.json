@@ -7,7 +7,8 @@
           {
             "type": "command",
             "command": "python \"${CLAUDE_PLUGIN_ROOT}/scripts/fix_file_headers.py\" --hook",
-            "timeout": 60
+            "timeout": 60,
+            "statusMessage": "Repairing headers in new source files"
           }
         ]
       }
